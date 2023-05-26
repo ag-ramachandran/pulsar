@@ -18,36 +18,33 @@
  */
 package org.apache.pulsar.io.kusto;
 
+import java.util.List;
+import java.util.concurrent.Executors;
+import java.util.concurrent.ScheduledExecutorService;
+import java.util.concurrent.TimeUnit;
+
 import org.apache.commons.collections4.CollectionUtils;
-import org.apache.pulsar.client.api.schema.Field;
-import org.apache.pulsar.client.api.schema.GenericRecord;
 import org.apache.pulsar.functions.api.Record;
 import org.apache.pulsar.io.core.Sink;
 
 import com.google.common.collect.Lists;
 
-import java.util.List;
-import java.util.concurrent.Executors;
-import java.util.concurrent.ScheduledExecutorService;
-import java.util.concurrent.TimeUnit;
 import lombok.extern.slf4j.Slf4j;
 import lombok.val;
 
 /**
  * Pulsar sink which can write data to target in batch.
  *
- * @param <T> The type of data to write to target database
  * @param <R> Pulsar message type, such as GenericRecord
  */
 @Slf4j
-public abstract class BatchSink<T, R> implements Sink<R> {
+public abstract class BatchSink<R> implements Sink<R> {
     private int batchSize;
     private List<Record<R>> incomingList;
     private ScheduledExecutorService flushExecutor;
 
     protected void init(long batchTimeMs, int batchSize) {
         this.batchSize = batchSize;
-
         incomingList = Lists.newArrayList();
         flushExecutor = Executors.newSingleThreadScheduledExecutor();
         flushExecutor.scheduleAtFixedRate(this::flush, batchTimeMs, batchTimeMs, TimeUnit.MILLISECONDS);
@@ -79,11 +76,11 @@ public abstract class BatchSink<T, R> implements Sink<R> {
             incomingList = Lists.newArrayList();
         }
 
-        val points = Lists.<T>newArrayListWithExpectedSize(toFlushList.size());
+        val points = Lists.<String>newArrayListWithExpectedSize(toFlushList.size());
         if (CollectionUtils.isNotEmpty(toFlushList)) {
             for (Record<R> record: toFlushList) {
                 try {
-                    points.add(buildPoint(record));
+                    points.add(buildIngestJsonRecord(record));
                 } catch (Exception e) {
                     record.fail();
                     toFlushList.remove(record);
@@ -94,7 +91,7 @@ public abstract class BatchSink<T, R> implements Sink<R> {
 
         try {
             if (CollectionUtils.isNotEmpty(points)) {
-                writePoints(points);
+                ingest(points);
             }
             toFlushList.forEach(Record::ack);
             points.clear();
@@ -112,19 +109,6 @@ public abstract class BatchSink<T, R> implements Sink<R> {
         }
     }
 
-    protected Object getFiled(GenericRecord record, String fieldName) {
-        List<Field> fields = record.getFields();
-        val fieldMatch = fields.stream()
-                .filter(field -> fieldName.equals(field.getName()))
-                .findAny()
-                .orElse(null);
-        if (null != fieldMatch) {
-            return record.getField(fieldMatch);
-        } else {
-            return null;
-        }
-    }
-
-    protected abstract T buildPoint(Record<R> message) throws Exception;
-    protected abstract void writePoints(List<T> points) throws Exception;
+    protected abstract String buildIngestJsonRecord(Record<R> message) throws Exception;
+    protected abstract void ingest(List<String> points) throws Exception;
 }

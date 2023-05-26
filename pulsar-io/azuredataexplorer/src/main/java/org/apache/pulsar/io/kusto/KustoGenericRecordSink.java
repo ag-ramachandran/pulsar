@@ -18,6 +18,8 @@
  */
 package org.apache.pulsar.io.kusto;
 
+import java.util.Map;
+
 import org.apache.pulsar.client.api.schema.GenericRecord;
 import org.apache.pulsar.functions.api.Record;
 import org.apache.pulsar.io.core.Sink;
@@ -25,7 +27,6 @@ import org.apache.pulsar.io.core.SinkContext;
 import org.apache.pulsar.io.core.annotations.Connector;
 import org.apache.pulsar.io.core.annotations.IOType;
 
-import java.util.Map;
 import lombok.extern.slf4j.Slf4j;
 import lombok.val;
 
@@ -33,7 +34,7 @@ import lombok.val;
  * Delegate for Kusto sinks, one for Kusto v1, the other for Kusto v2.
  */
 @Connector(
-        name = "adx",
+        name = "kusto",
         type = IOType.SINK,
         help = "The KustoGenericRecordSink is used for moving messages from Pulsar to AzureDataExplorer.",
         configClass = KustoSinkConfig.class
@@ -49,14 +50,7 @@ public class KustoGenericRecordSink implements Sink<GenericRecord> {
             configV2.validate();
             sink = new KustoSink();
         } catch (Exception e) {
-            try {
-                val configV1 = org.apache.pulsar.io.kusto.v1.KustoSinkConfig.load(map);
-                configV1.validate();
-                sink = new org.apache.pulsar.io.kusto.v1.KustoGenericRecordSink();
-            } catch (Exception e1) {
-                throw new Exception("For Kusto V2: \n" + e.toString() + "\n"
-                + "For Kusto V1: \n" + e1.toString());
-            }
+            throw new Exception("For Kusto V2: \n" + e.toString() + "\n");
         }
        sink.open(map, sinkContext);
     }

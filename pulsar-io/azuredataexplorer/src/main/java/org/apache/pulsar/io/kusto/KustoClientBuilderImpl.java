@@ -18,17 +18,11 @@
  */
 package org.apache.pulsar.io.kusto;
 
-
-import lombok.val;
-
 import com.microsoft.azure.kusto.ingest.IngestClient;
 
 public class KustoClientBuilderImpl implements KustoClientBuilder {
-
     @Override
     public IngestClient build(KustoSinkConfig kustoSinkConfig) {
-
-
         return null;
     }
 }

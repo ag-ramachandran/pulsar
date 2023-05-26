@@ -18,7 +18,6 @@
  */
 package org.apache.pulsar.io.kusto;
 
-
 import com.microsoft.azure.kusto.ingest.IngestClient;
 
 public interface KustoClientBuilder {

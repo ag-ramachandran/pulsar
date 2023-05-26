@@ -18,136 +18,80 @@
  */
 package org.apache.pulsar.io.kusto;
 
-import org.apache.avro.util.Utf8;
-import org.apache.pulsar.client.api.SchemaSerializationException;
+import java.io.ByteArrayInputStream;
+import java.io.InputStream;
+import java.util.List;
+import java.util.Map;
+
 import org.apache.pulsar.client.api.schema.Field;
 import org.apache.pulsar.client.api.schema.GenericRecord;
 import org.apache.pulsar.functions.api.Record;
 import org.apache.pulsar.io.core.SinkContext;
 
-import com.Kusto.client.KustoClient;
-import com.Kusto.client.WriteApiBlocking;
-import com.Kusto.client.domain.WritePrecision;
-import com.Kusto.client.write.Point;
+import com.fasterxml.jackson.core.JsonParser;
+import com.fasterxml.jackson.core.JsonProcessingException;
+import com.fasterxml.jackson.databind.ObjectMapper;
+import com.microsoft.azure.kusto.ingest.IngestClient;
+import com.microsoft.azure.kusto.ingest.IngestionProperties;
+import com.microsoft.azure.kusto.ingest.source.CompressionType;
+import com.microsoft.azure.kusto.ingest.source.StreamSourceInfo;
 
-import java.util.List;
-import java.util.Map;
+import java.util.UUID;
+import java.util.stream.Collectors;
 import lombok.extern.slf4j.Slf4j;
 import lombok.val;
 
 /**
- * Pulsar sink for Kusto2.
+ * Pulsar sink for Kusto.
  */
 @Slf4j
-public class KustoSink extends BatchSink<Point, GenericRecord> {
-
-    private WritePrecision writePrecision;
-
-    protected KustoClientBuilder KustoClientBuilder = new KustoClientBuilderImpl();
-
-    private KustoClient KustoClient;
-    private WriteApiBlocking writeApi;
+public class KustoSink extends BatchSink<GenericRecord> {
+    private static final ObjectMapper OBJECT_MAPPER = new ObjectMapper().enable(JsonParser.Feature.ALLOW_SINGLE_QUOTES);
+    private IngestClient ingestClient;
 
     @Override
     public void open(Map<String, Object> config, SinkContext sinkContext) throws Exception {
         KustoSinkConfig kustoSinkConfig = KustoSinkConfig.load(config);
         kustoSinkConfig.validate();
         super.init(kustoSinkConfig.getBatchTimeMs(), kustoSinkConfig.getBatchSize());
-
-        KustoClient = KustoClientBuilder.build(kustoSinkConfig);
-
-        writeApi = KustoClient.getWriteApiBlocking();
-        writePrecision = WritePrecision.fromValue(kustoSinkConfig.getPrecision().toLowerCase());
+        KustoClientBuilder clientBuilder = new KustoClientBuilderImpl();
+        ingestClient = clientBuilder.build(kustoSinkConfig);
     }
 
     @Override
-    protected final Point buildPoint(Record<GenericRecord> record) {
+    protected final String buildIngestJsonRecord(Record<GenericRecord> record) {
         val genericRecord = record.getValue();
-
-        // looking for measurement
-        val measurementField = genericRecord.getField("measurement");
-        if (null == measurementField) {
-            throw new SchemaSerializationException("measurement is a required field.");
-        }
-        val measurement = (String) measurementField;
-
-        // looking for timestamp
-        long timestamp;
-        val timestampField = getFiled(genericRecord, "timestamp");
-        if (null == timestampField) {
-            timestamp = System.currentTimeMillis();
-        } else if (timestampField instanceof Number) {
-            timestamp = ((Number) timestampField).longValue();
-        } else if (timestampField instanceof String) {
-            timestamp = Long.parseLong((String) timestampField);
-        } else {
-            throw new SchemaSerializationException("Invalid timestamp field");
-        }
-
-        val point = Point.measurement(measurement).time(timestamp, writePrecision);
-
-        // Looking for tag fields
-        val tagsField = getFiled(genericRecord, "tags");
-        if (null != tagsField) {
-            if (tagsField instanceof GenericRecord) { // JSONSchema
-                GenericRecord tagsRecord = (GenericRecord) tagsField;
-                for (Field field : tagsRecord.getFields()) {
-                    val fieldName = field.getName();
-                    val value = tagsRecord.getField(field);
-                    point.addTag(fieldName, (String) value);
-                }
-            } else if (Map.class.isAssignableFrom(tagsField.getClass())) { // AvroSchema
-                Map<Object, Object> tagsMap = (Map<Object, Object>) tagsField;
-                tagsMap.forEach((key, value) -> point.addTag(key.toString(), value.toString()));
-            } else {
-                throw new SchemaSerializationException("Unknown type for 'tags'");
+        // Better to use this as a JSON as it is more flexible than CSV which will need an additional mapping
+        if (genericRecord != null) {
+            Map<String,Object> jsonToCreate = genericRecord.getFields().stream().collect(Collectors.toMap(
+                    Field::getName,
+                    genericRecord::getField
+            ));
+            try {
+                return OBJECT_MAPPER.writeValueAsString(jsonToCreate);
+            } catch (JsonProcessingException e) {
+                //TODO handle this with logs ?
+                throw new RuntimeException(e);
             }
         }
-
-        // Looking for sensor fields
-        val columnsField = genericRecord.getField("fields");
-        if (columnsField instanceof GenericRecord) { // JSONSchema
-            val columnsRecord = (GenericRecord) columnsField;
-            for (Field field : columnsRecord.getFields()) {
-                val fieldName = field.getName();
-                val value = columnsRecord.getField(field);
-                addPointField(point, fieldName, value);
-            }
-        } else if (Map.class.isAssignableFrom(columnsField.getClass())) { // AvroSchema
-            val columnsMap = (Map<Object, Object>) columnsField;
-            columnsMap.forEach((key, value) -> addPointField(point, key.toString(), value));
-        } else {
-            throw new SchemaSerializationException("Unknown type for 'fields'");
-        }
-
-        return point;
+        return null;
     }
 
     @Override
-    protected void writePoints(List<Point> points) throws Exception {
-        writeApi.writePoints(points);
+    protected void ingest(List<String> records) throws Exception {
+        UUID sourceId = UUID.randomUUID();
+        byte[] bytes = records.stream().collect(Collectors.joining(System.lineSeparator())).getBytes();
+        InputStream inputStream = new ByteArrayInputStream(bytes);
+        StreamSourceInfo streamSourceInfo = new StreamSourceInfo(inputStream,false,sourceId, CompressionType.gz);
+        //IngestionProperties properties = new IngestionProperties();
+        //ingestClient.ingestFromStream(streamSourceInfo,
     }
 
     @Override
     public void close() throws Exception {
         super.close();
-        if (null != KustoClient) {
-            KustoClient.close();
-        }
-    }
-
-    private void addPointField(Point point, String fieldName, Object value) throws SchemaSerializationException {
-        if (value instanceof Number) {
-            point.addField(fieldName, (Number) value);
-        } else if (value instanceof Boolean) {
-            point.addField(fieldName, (Boolean) value);
-        } else if (value instanceof String) {
-            point.addField(fieldName, (String) value);
-        } else if (value instanceof Utf8) {
-            point.addField(fieldName, value.toString());
-        } else {
-            throw new SchemaSerializationException("Unknown value type for field " + fieldName
-                    + ". Type: " + value.getClass());
+        if (null != ingestClient) {
+            ingestClient.close();
         }
     }
 }

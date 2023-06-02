@@ -46,61 +46,65 @@ public class KustoSinkConfig implements Serializable {
     @FieldDoc(
             required = true,
             defaultValue = "",
-            help = "The url of the Kusto instance to connect to"
-    )
+            help = "The url of the Kusto instance to connect to")
     private String clusterUrl;
 
     @FieldDoc(
-            required = true,
+            defaultValue = "",
+            help = "The AppId to ingest data to Kusto")
+    private String appId;
+
+    @FieldDoc(
             defaultValue = "",
             sensitive = true,
-            help = "The authentication token used to authenticate to Kusto"
-    )
-    private String token;
+            help = "The AppKey to use for the AppId")
+    private String appKey;
+
+    @FieldDoc(
+            defaultValue = "",
+            help = "The TenantId to use to authenticate the AppId")
+    private String tenantId;
+
+    @FieldDoc(
+            defaultValue = "",
+            help = "The user managed identity client id to use")
+    private String managedIdentityClientId;
 
     @FieldDoc(
             required = true,
             defaultValue = "",
-            help = "The Kusto organization to write to"
-    )
-    private String organization;
+            help = "The database to ingest the data into")
+    private String database;
 
     @FieldDoc(
             required = true,
             defaultValue = "",
-            help = "The Kusto bucket to write to"
-    )
-    private String bucket;
+            help = "The table to ingest the data into")
+    private String table;
 
     @FieldDoc(
-            required = false,
-            defaultValue = "ONE",
-            help = "The timestamp precision for writing data to Kusto. Possible values [ns, us, ms, s]")
-    private String precision = "ns";
-
-    @FieldDoc(
-            required = false,
             defaultValue = "NONE",
             help = "The log level for Kusto request and response. Possible values [NONE, BASIC, HEADERS, FULL]")
     private String logLevel = "NONE";
 
     @FieldDoc(
-            required = false,
-            defaultValue = "false",
-            help = "Flag to determine if gzip should be enabled")
-    private boolean gzipEnable = false;
+            defaultValue = "",
+            help = "The ingestion mapping to use")
+    private String ingestionMapping;
 
     @FieldDoc(
-            required = false,
+            defaultValue = "false",
+            help = "Decides if streaming should be used")
+    private String useStreaming;
+
+    @FieldDoc(
             defaultValue = "1000L",
             help = "The Kusto operation time in milliseconds")
     private long batchTimeMs = 1000;
 
     @FieldDoc(
-            required = false,
             defaultValue = "200",
-            help = "The batch size of write to Kusto database"
-    )
+            help = "The batch size of write to Kusto database")
     private int batchSize = 200;
 
     public static KustoSinkConfig load(String yamlFile) throws IOException {
@@ -115,12 +119,8 @@ public class KustoSinkConfig implements Serializable {
 
     public void validate() {
         Preconditions.checkNotNull(clusterUrl, "clusterUrl property not set.");
-        Preconditions.checkNotNull(token, "token property not set.");
-        Preconditions.checkNotNull(organization, "organization property not set.");
-        Preconditions.checkNotNull(bucket, "bucket property not set.");
 
         Preconditions.checkArgument(batchSize > 0, "batchSize must be a positive integer.");
         Preconditions.checkArgument(batchTimeMs > 0, "batchTimeMs must be a positive long.");
     }
 }
-

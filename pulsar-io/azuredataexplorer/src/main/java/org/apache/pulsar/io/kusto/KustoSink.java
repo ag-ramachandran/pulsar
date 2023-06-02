@@ -22,6 +22,8 @@ import java.io.ByteArrayInputStream;
 import java.io.InputStream;
 import java.util.List;
 import java.util.Map;
+import java.util.UUID;
+import java.util.stream.Collectors;
 
 import org.apache.pulsar.client.api.schema.Field;
 import org.apache.pulsar.client.api.schema.GenericRecord;
@@ -32,12 +34,11 @@ import com.fasterxml.jackson.core.JsonParser;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.microsoft.azure.kusto.ingest.IngestClient;
+import com.microsoft.azure.kusto.ingest.IngestionMapping;
 import com.microsoft.azure.kusto.ingest.IngestionProperties;
 import com.microsoft.azure.kusto.ingest.source.CompressionType;
 import com.microsoft.azure.kusto.ingest.source.StreamSourceInfo;
 
-import java.util.UUID;
-import java.util.stream.Collectors;
 import lombok.extern.slf4j.Slf4j;
 import lombok.val;
 
@@ -48,6 +49,7 @@ import lombok.val;
 public class KustoSink extends BatchSink<GenericRecord> {
     private static final ObjectMapper OBJECT_MAPPER = new ObjectMapper().enable(JsonParser.Feature.ALLOW_SINGLE_QUOTES);
     private IngestClient ingestClient;
+    private IngestionProperties ingestionProperties;
 
     @Override
     public void open(Map<String, Object> config, SinkContext sinkContext) throws Exception {
@@ -55,7 +57,11 @@ public class KustoSink extends BatchSink<GenericRecord> {
         kustoSinkConfig.validate();
         super.init(kustoSinkConfig.getBatchTimeMs(), kustoSinkConfig.getBatchSize());
         KustoClientBuilder clientBuilder = new KustoClientBuilderImpl();
-        ingestClient = clientBuilder.build(kustoSinkConfig);
+        this.ingestionProperties = new IngestionProperties(kustoSinkConfig.getDatabase(), kustoSinkConfig.getTable());
+        this.ingestionProperties.setIngestionMapping(kustoSinkConfig.getIngestionMapping(),
+                IngestionMapping.IngestionMappingKind.JSON);
+        this.ingestionProperties.setDataFormat(IngestionProperties.DataFormat.MULTIJSON);
+        this.ingestClient = clientBuilder.build(kustoSinkConfig);
     }
 
     @Override
@@ -63,14 +69,13 @@ public class KustoSink extends BatchSink<GenericRecord> {
         val genericRecord = record.getValue();
         // Better to use this as a JSON as it is more flexible than CSV which will need an additional mapping
         if (genericRecord != null) {
-            Map<String,Object> jsonToCreate = genericRecord.getFields().stream().collect(Collectors.toMap(
+            Map<String, Object> jsonToCreate = genericRecord.getFields().stream().collect(Collectors.toMap(
                     Field::getName,
-                    genericRecord::getField
-            ));
+                    genericRecord::getField));
             try {
                 return OBJECT_MAPPER.writeValueAsString(jsonToCreate);
             } catch (JsonProcessingException e) {
-                //TODO handle this with logs ?
+                // TODO handle this with logs ?
                 throw new RuntimeException(e);
             }
         }
@@ -82,17 +87,16 @@ public class KustoSink extends BatchSink<GenericRecord> {
         UUID sourceId = UUID.randomUUID();
         byte[] bytes = records.stream().collect(Collectors.joining(System.lineSeparator())).getBytes();
         InputStream inputStream = new ByteArrayInputStream(bytes);
-        StreamSourceInfo streamSourceInfo = new StreamSourceInfo(inputStream,false,sourceId, CompressionType.gz);
-        //IngestionProperties properties = new IngestionProperties();
-        //ingestClient.ingestFromStream(streamSourceInfo,
+        StreamSourceInfo streamSourceInfo = new StreamSourceInfo(inputStream, false, sourceId, CompressionType.gz);
+        // IngestionProperties properties = new IngestionProperties();
+        this.ingestClient.ingestFromStream(streamSourceInfo, this.ingestionProperties);
     }
 
     @Override
     public void close() throws Exception {
         super.close();
-        if (null != ingestClient) {
-            ingestClient.close();
+        if (null != this.ingestClient) {
+            this.ingestClient.close();
         }
     }
 }
-

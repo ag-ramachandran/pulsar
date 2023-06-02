@@ -66,7 +66,7 @@ public abstract class BatchSink<R> implements Sink<R> {
     }
 
     private void flush() {
-        List<Record<R>>  toFlushList;
+        List<Record<R>> toFlushList;
 
         synchronized (this) {
             if (incomingList.isEmpty()) {
@@ -78,7 +78,7 @@ public abstract class BatchSink<R> implements Sink<R> {
 
         val points = Lists.<String>newArrayListWithExpectedSize(toFlushList.size());
         if (CollectionUtils.isNotEmpty(toFlushList)) {
-            for (Record<R> record: toFlushList) {
+            for (Record<R> record : toFlushList) {
                 try {
                     points.add(buildIngestJsonRecord(record));
                 } catch (Exception e) {
@@ -110,5 +110,6 @@ public abstract class BatchSink<R> implements Sink<R> {
     }
 
     protected abstract String buildIngestJsonRecord(Record<R> message) throws Exception;
+
     protected abstract void ingest(List<String> points) throws Exception;
 }

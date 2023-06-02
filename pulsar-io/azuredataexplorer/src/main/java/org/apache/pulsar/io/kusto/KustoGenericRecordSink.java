@@ -37,8 +37,7 @@ import lombok.val;
         name = "kusto",
         type = IOType.SINK,
         help = "The KustoGenericRecordSink is used for moving messages from Pulsar to AzureDataExplorer.",
-        configClass = KustoSinkConfig.class
-)
+        configClass = KustoSinkConfig.class)
 @Slf4j
 public class KustoGenericRecordSink implements Sink<GenericRecord> {
     protected Sink<GenericRecord> sink;
@@ -52,7 +51,7 @@ public class KustoGenericRecordSink implements Sink<GenericRecord> {
         } catch (Exception e) {
             throw new Exception("For Kusto V2: \n" + e.toString() + "\n");
         }
-       sink.open(map, sinkContext);
+        sink.open(map, sinkContext);
     }
 
     @Override
